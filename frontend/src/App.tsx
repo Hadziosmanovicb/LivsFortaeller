@@ -59,6 +59,36 @@ function App() {
     setIsRecording(false);
   }
 
+async function sendAudio() {
+  if (!audioUrl) return;
+
+  try {
+    // Hent lydoptagelsen fra browseren
+    const response = await fetch(audioUrl);
+    const audioBlob = await response.blob();
+
+    // Pak lydfilen, så FastAPI kan modtage den
+    const formData = new FormData();
+    formData.append("file", audioBlob, "recording.webm");
+
+    // Send lydfilen til vores Python-backend
+    const result = await fetch("http://127.0.0.1:8000/transcribe", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!result.ok) {
+      throw new Error("Serveren kunne ikke modtage lydfilen.");
+    }
+
+    const data = await result.json();
+    alert(data.message);
+  } catch (error) {
+    console.error(error);
+    alert("Kunne ikke sende lydfilen.");
+  }
+}
+
   return (
     <main style={{ textAlign: "center", padding: "60px 20px" }}>
       <h1>LivsFortæller</h1>
@@ -78,6 +108,9 @@ function App() {
         <div style={{ marginTop: "30px" }}>
           <h3>Din optagelse</h3>
           <audio controls src={audioUrl} />
+          <button onClick={sendAudio}>
+  Send lyd til Python
+</button>
         </div>
       )}
     </main>
