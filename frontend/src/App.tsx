@@ -1,295 +1,329 @@
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import "./App.css";
+
+const API = "http://127.0.0.1:8000";
 
 function App() {
-  const [isRecording, setIsRecording] = useState(false);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [biography, setBiography] = useState("");
+  const [question, setQuestion] = useState(
+    "Hvem vil du gerne fortælle om?"
+  );
+  const [finished, setFinished] = useState(false);
   const [error, setError] = useState("");
-const [transcription, setTranscription] = useState("");
+
   const recorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-const [biography, setBiography] = useState("");
-const [isGenerating, setIsGenerating] = useState(false);
-const [question, setQuestion] = useState("");
-const [isAsking, setIsAsking] = useState(false);
-const [interviewAnswer, setInterviewAnswer] = useState("");
+  const chunksRef = useRef<Blob[]>([]);
+
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach(
+        (track) => track.stop()
+      );
+    };
+  }, []);
+
+  async function apiPost(
+    endpoint: string,
+    body: object
+  ) {
+    const response = await fetch(`${API}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API-fejl: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
   async function startRecording() {
     try {
       setError("");
+      setDraft("");
 
-      // Spørg brugeren om adgang til mikrofonen
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
 
       streamRef.current = stream;
+      chunksRef.current = [];
 
-      // Opret en lydoptager
       const recorder = new MediaRecorder(stream);
       recorderRef.current = recorder;
-      audioChunksRef.current = [];
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
+          chunksRef.current.push(event.data);
         }
       };
 
-      recorder.onstop = () => {
-        // Saml lydoptagelsen
-        const audioBlob = new Blob(audioChunksRef.current, {
+      recorder.onstop = async () => {
+        const audio = new Blob(chunksRef.current, {
           type: recorder.mimeType,
         });
 
-        setAudioUrl((previousUrl) => {
-          if (previousUrl) URL.revokeObjectURL(previousUrl);
-          return URL.createObjectURL(audioBlob);
-        });
-
-        stream.getTracks().forEach((track) => track.stop());
+        stream.getTracks().forEach(
+          (track) => track.stop()
+        );
         streamRef.current = null;
+
+        await transcribeAudio(audio);
       };
 
       recorder.start();
-      setIsRecording(true);
+      setRecording(true);
     } catch {
       setError("Kunne ikke få adgang til mikrofonen.");
     }
   }
 
   function stopRecording() {
-    recorderRef.current?.stop();
-    setIsRecording(false);
-  }
-
-
-async function sendAudio() {
-  if (!audioUrl) return;
-
-  try {
-    setTranscription("AI behandler din optagelse...");
-
-    const response = await fetch(audioUrl);
-    const audioBlob = await response.blob();
-
-    const formData = new FormData();
-    formData.append("file", audioBlob, "recording.webm");
-
-    const result = await fetch("http://127.0.0.1:8000/transcribe", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!result.ok) {
-      throw new Error("Transskription mislykkedes");
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
     }
 
-    const data = await result.json();
-    if (question) {
-  // Et interviewspørgsmål er aktivt
-  setInterviewAnswer(data.text);
-} else {
-  // Den første fortælling
-  setTranscription(data.text);
-}
-  } catch (error) {
-    console.error(error);
-    setTranscription("Der opstod en fejl.");
-  }
-}
-
-async function generateBiography() {
-  if (!transcription.trim() || isGenerating) return;
-
-  try {
-    setIsGenerating(true);
-    setBiography("");
-
-    const response = await fetch("http://127.0.0.1:8000/biography", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: transcription,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Kunne ikke generere biografi");
-    }
-
-    const data = await response.json();
-    setBiography(data.biography);
-  } catch (error) {
-    console.error(error);
-    alert("Der opstod en fejl ved generering af biografien.");
-  } finally {
-    setIsGenerating(false);
-  }
-}
-
-
-async function askQuestion() {
-  if (!biography.trim() || isAsking) return;
-
-  try {
-    setIsAsking(true);
-    setQuestion("");
-
-    const response = await fetch("http://127.0.0.1:8000/interview", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        biography: biography,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Kunne ikke hente spørgsmål");
-    }
-
-    const data = await response.json();
-    setQuestion(data.question);
-
-  } catch (error) {
-    console.error(error);
-    alert("Der opstod en fejl med AI-intervieweren.");
-  } finally {
-    setIsAsking(false);
-  }
-}
-
-async function updateBiography() {
-  if (!biography || !question || !interviewAnswer || isGenerating) {
-    return;
+    setRecording(false);
   }
 
-  try {
-    setIsGenerating(true);
+  async function transcribeAudio(audio: Blob) {
+    setLoading(true);
 
-    const response = await fetch(
-      "http://127.0.0.1:8000/biography/update",
-      {
+    try {
+      const formData = new FormData();
+      formData.append(
+        "file",
+        audio,
+        audio.type.includes("mp4")
+          ? "recording.mp4"
+          : "recording.webm"
+      );
+
+      const response = await fetch(`${API}/transcribe`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          biography: biography,
-          question: question,
-          answer: interviewAnswer,
-        }),
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Transskription mislykkedes");
       }
-    );
 
-    if (!response.ok) {
-      throw new Error("Kunne ikke opdatere biografien");
+      const data = await response.json();
+      setDraft(data.text || "");
+    } catch {
+      setError("Kunne ikke omdanne tale til tekst.");
+    } finally {
+      setLoading(false);
     }
-
-    const data = await response.json();
-
-    // Vis den opdaterede biografi
-    setBiography(data.biography);
-
-    // Nulstil interviewet til næste spørgsmål
-    setQuestion("");
-    setInterviewAnswer("");
-
-  } catch (error) {
-    console.error(error);
-    alert("Der opstod en fejl ved opdatering.");
-  } finally {
-    setIsGenerating(false);
   }
-}
+
+  async function approveAnswer() {
+    if (!draft.trim() || loading) return;
+
+    setLoading(true);
+    setError("");
+
+    try {
+      let newBiography: string;
+
+      if (!biography) {
+        const data = await apiPost("/biography", {
+          text: draft,
+        });
+
+        newBiography = data.biography;
+      } else {
+        const data = await apiPost(
+          "/biography/update",
+          {
+            biography,
+            question,
+            answer: draft,
+          }
+        );
+
+        newBiography = data.biography;
+      }
+
+      setBiography(newBiography);
+      setDraft("");
+
+      const next = await apiPost("/interview", {
+        biography: newBiography,
+      });
+
+      setQuestion(next.question);
+    } catch {
+      setError(
+        "Noget gik galt. Kontrollér resultatet, før du prøver igen."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
-    <main style={{ textAlign: "center", padding: "60px 20px" }}>
-      <h1>LivsFortæller</h1>
-      <p>Fortæl din historie med din egen stemme.</p>
-
-      <button
-        onClick={isRecording ? stopRecording : startRecording}
-        style={{ padding: "15px 25px", cursor: "pointer" }}
-      >
-        {isRecording ? "⏹ Stop optagelse" : "🎤 Start optagelse"}
-      </button>
-
-      {isRecording && <p>🔴 Optager...</p>}
-      {error && <p role="alert">{error}</p>}
-
-      {audioUrl && (
-        <div style={{ marginTop: "30px" }}>
-          <h3>Din optagelse</h3>
-          <audio controls src={audioUrl} />
-          <button onClick={sendAudio}>
-  Send lyd til Python
-</button>
-
-{transcription && (
-  <div>
-    <h2>Din fortælling</h2>
-    <p>{transcription}</p>
-
-    <button
-      onClick={generateBiography}
-      disabled={isGenerating}
-    >
-      {isGenerating ? "AI skriver..." : "Generér biografi"}
-    </button>
-  </div>
-)}
-
-
-{biography && (
-  <div>
-    <h2>Din biografi</h2>
-    <p>{biography}</p>
-
-    <button
-      onClick={askQuestion}
-      disabled={isAsking}
-    >
-      {isAsking ? "AI tænker..." : "Stil et opfølgende spørgsmål"}
-    </button>
-  </div>
-)}
-
-
-{question && (
-  <div>
-    <h2>AI-interviewer</h2>
-    <p>{question}</p>
-
-    <p>🎤 Brug mikrofonen ovenfor til at svare.</p>
-
- 
-{interviewAnswer && (
-  <div>
-    <h3>Dit svar</h3>
-    <p>{interviewAnswer}</p>
-
-    <button
-      onClick={updateBiography}
-      disabled={isGenerating}
-    >
-      {isGenerating ? "Opdaterer..." : "Opdater biografi med mit svar"}
-    </button>
-  </div>
-)}
-
-  </div>
-)}
-
-
-
+    <div className="app">
+      <header className="header">
+        <div className="brand">
+          <span className="brand-icon">✦</span>
+          LivsFortæller
         </div>
-      )}
-    </main>
+        <span className="header-subtitle">
+          Din historie, dine ord
+        </span>
+      </header>
+
+      <main className="main">
+        <section className="intro">
+          <span className="eyebrow">
+            BEVAR DET, DER BETYDER NOGET
+          </span>
+          <h1>Ethvert liv har en historie.</h1>
+          <p>
+            Fortæl med din stemme. Vi hjælper dig
+            med at samle minderne til en livsfortælling.
+          </p>
+        </section>
+
+        {biography && (
+          <section className="biography-card">
+            <div className="card-heading">
+              <span>✦</span> Din biografi
+            </div>
+
+            <textarea
+              className="biography-text"
+              value={biography}
+              onChange={(event) =>
+                setBiography(event.target.value)
+              }
+              aria-label="Redigér din biografi"
+              rows={6}
+            />
+
+            <p className="hint">
+              Du kan selv rette teksten.
+            </p>
+          </section>
+        )}
+
+        {!finished ? (
+          <section className="conversation">
+            <span className="eyebrow">
+              DIN AI-INTERVIEWER
+            </span>
+
+            <h2>{question}</h2>
+
+            <button
+              className={`mic-button ${
+                recording ? "active" : ""
+              }`}
+              onClick={
+                recording ? stopRecording : startRecording
+              }
+              disabled={loading || !!draft}
+              aria-label={
+                recording
+                  ? "Stop optagelse"
+                  : "Start optagelse"
+              }
+            >
+              {recording ? "■" : "🎙"}
+            </button>
+
+            <p className="recording-status">
+              {recording
+                ? "Optager... Tryk for at stoppe"
+                : loading
+                  ? "AI arbejder..."
+                  : draft
+                    ? "Gennemgå din tekst nedenfor"
+                    : "Tryk på mikrofonen for at tale"}
+            </p>
+
+            {draft && (
+              <div className="draft-box">
+                <label htmlFor="draft">
+                  Det hørte vi:
+                </label>
+
+                <textarea
+                  id="draft"
+                  value={draft}
+                  rows={4}
+                  onChange={(event) =>
+                    setDraft(event.target.value)
+                  }
+                />
+
+                <div className="draft-actions">
+                  <button
+                    className="secondary-button"
+                    onClick={() => setDraft("")}
+                    disabled={loading}
+                  >
+                    Prøv igen
+                  </button>
+
+                  <button
+                    className="primary-button"
+                    onClick={approveAnswer}
+                    disabled={loading || !draft.trim()}
+                  >
+                    Godkend og fortsæt
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+
+            {biography && (
+              <button
+                className="finish-button"
+                disabled={recording || loading}
+                onClick={() => setFinished(true)}
+              >
+                Jeg er tilfreds med min biografi ✓
+              </button>
+            )}
+          </section>
+        ) : (
+          <section className="conversation">
+            <div className="finish-icon">✓</div>
+            <h2>Din fortælling er klar</h2>
+            <p>
+              Du kan stadig redigere din biografi ovenfor.
+            </p>
+            <button
+              className="secondary-button"
+              onClick={() => setFinished(false)}
+            >
+              Fortsæt interviewet
+            </button>
+          </section>
+        )}
+
+        <footer className="footer">
+          Din fortælling forbliver i denne session.
+          Intet offentliggøres automatisk.
+        </footer>
+      </main>
+    </div>
   );
 }
 
