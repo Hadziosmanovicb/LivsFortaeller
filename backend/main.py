@@ -1,7 +1,7 @@
 
 import os
 import logging
-
+from pydantic import BaseModel
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,3 +47,27 @@ async def transcribe(file: UploadFile = File(...)):
             status_code=500,
             detail="Kunne ikke transskribere optagelsen."
         )
+
+class BiographyRequest(BaseModel):
+    text: str
+
+
+@app.post("/biography")
+async def generate_biography(request: BiographyRequest):
+    response = await client.responses.create(
+        model="gpt-6-luna",
+        instructions=(
+            "Du er en dansk biografiforfatter. "
+            "Omskriv brugerens tekst til en kort, "
+            "naturlig og velskrevet biografi i tredje person. "
+            "Brug kun oplysninger fra brugerens tekst. "
+            "Du må aldrig opfinde navne, datoer, steder "
+            "eller andre personlige fakta. "
+            "Hvis noget er uklart, skal du udelade det. "
+            "Svar kun med biografien."
+        ),
+        input=request.text,
+        max_output_tokens=250,
+    )
+
+    return {"biography": response.output_text}
