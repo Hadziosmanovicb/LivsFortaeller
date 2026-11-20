@@ -5,7 +5,7 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
-
+const [transcription, setTranscription] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -59,35 +59,37 @@ function App() {
     setIsRecording(false);
   }
 
+
 async function sendAudio() {
   if (!audioUrl) return;
 
   try {
-    // Hent lydoptagelsen fra browseren
+    setTranscription("AI behandler din optagelse...");
+
     const response = await fetch(audioUrl);
     const audioBlob = await response.blob();
 
-    // Pak lydfilen, så FastAPI kan modtage den
     const formData = new FormData();
     formData.append("file", audioBlob, "recording.webm");
 
-    // Send lydfilen til vores Python-backend
     const result = await fetch("http://127.0.0.1:8000/transcribe", {
       method: "POST",
       body: formData,
     });
 
     if (!result.ok) {
-      throw new Error("Serveren kunne ikke modtage lydfilen.");
+      throw new Error("Transskription mislykkedes");
     }
 
     const data = await result.json();
-    alert(data.message);
+    setTranscription(data.text);
+
   } catch (error) {
     console.error(error);
-    alert("Kunne ikke sende lydfilen.");
+    setTranscription("Der opstod en fejl.");
   }
 }
+
 
   return (
     <main style={{ textAlign: "center", padding: "60px 20px" }}>
@@ -111,6 +113,12 @@ async function sendAudio() {
           <button onClick={sendAudio}>
   Send lyd til Python
 </button>
+{transcription && (
+  <div>
+    <h2>Din fortælling</h2>
+    <p>{transcription}</p>
+  </div>
+)}
         </div>
       )}
     </main>
