@@ -9,6 +9,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [biography, setBiography] = useState("");
+  const [liveText, setLiveText] = useState("");
   const [question, setQuestion] = useState(
     "Hvem vil du gerne fortælle om?"
   );
@@ -18,7 +19,9 @@ function App() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-
+const liveRecognitionRef = useRef<{
+  stop: () => void;
+} | null>(null);
   useEffect(() => {
     return () => {
       streamRef.current?.getTracks().forEach(
@@ -43,6 +46,59 @@ function App() {
 
     return response.json();
   }
+
+function startLiveTranscription() {
+  type SpeechResult = {
+    isFinal: boolean;
+    0: { transcript: string };
+  };
+
+  type SpeechRecognizer = {
+    lang: string;
+    continuous: boolean;
+    interimResults: boolean;
+    onresult: ((event: {
+      results: ArrayLike<SpeechResult>;
+    }) => void) | null;
+    start: () => void;
+    stop: () => void;
+  };
+
+  type SpeechRecognizerConstructor = new () => SpeechRecognizer;
+
+  const browser = window as typeof window & {
+    SpeechRecognition?: SpeechRecognizerConstructor;
+    webkitSpeechRecognition?: SpeechRecognizerConstructor;
+  };
+
+  const Recognition =
+    browser.SpeechRecognition ||
+    browser.webkitSpeechRecognition;
+
+  if (!Recognition) {
+    return null;
+  }
+
+  const recognition = new Recognition();
+
+  recognition.lang = "da-DK";
+  recognition.continuous = true;
+  recognition.interimResults = true;
+
+  recognition.onresult = (event) => {
+    let text = "";
+
+    for (let i = 0; i < event.results.length; i++) {
+      text += event.results[i][0].transcript + " ";
+    }
+
+    setLiveText(text.trim());
+  };
+
+  recognition.start();
+
+  return recognition;
+}
 
   async function startRecording() {
     try {
@@ -79,14 +135,23 @@ function App() {
         await transcribeAudio(audio);
       };
 
-      recorder.start();
-      setRecording(true);
+     setLiveText("");
+recorder.start();
+setRecording(true);
+
+try {
+  liveRecognitionRef.current = startLiveTranscription();
+} catch {
+  // Den eksisterende OpenAI-optagelse virker stadig
+}
     } catch {
       setError("Kunne ikke få adgang til mikrofonen.");
     }
   }
 
   function stopRecording() {
+    liveRecognitionRef.current?.stop();
+liveRecognitionRef.current = null;
     if (recorderRef.current?.state === "recording") {
       recorderRef.current.stop();
     }
@@ -250,7 +315,11 @@ function App() {
                     ? "Gennemgå din tekst nedenfor"
                     : "Tryk på mikrofonen for at tale"}
             </p>
-
+{recording && liveText && (
+  <div className="draft-box">
+    <p>🎙️ {liveText}</p>
+  </div>
+)}
             {draft && (
               <div className="draft-box">
                 <label htmlFor="draft">
