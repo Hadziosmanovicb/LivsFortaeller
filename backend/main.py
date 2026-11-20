@@ -71,3 +71,61 @@ async def generate_biography(request: BiographyRequest):
     )
 
     return {"biography": response.output_text}
+
+class InterviewRequest(BaseModel):
+    biography: str
+
+
+@app.post("/interview")
+async def generate_interview_question(request: InterviewRequest):
+    response = await client.responses.create(
+        model="gpt-6-luna",
+        instructions=(
+            "Du er LivsFortæller, en venlig dansk AI-interviewer. "
+            "Du hjælper brugeren med at indsamle oplysninger "
+            "til en personlig biografi. "
+            "Læs den nuværende biografi og stil præcis ét "
+            "relevant opfølgende spørgsmål på dansk. "
+            "Spørg om noget vigtigt, som biografien mangler. "
+            "Du må ikke antage eller opfinde personlige fakta. "
+            "Spørgsmålet skal være kort, naturligt og venligt. "
+            "Svar kun med selve spørgsmålet."
+        ),
+        input=request.biography,
+        max_output_tokens=120,
+    )
+
+    return {"question": response.output_text}
+
+class UpdateBiographyRequest(BaseModel):
+    biography: str
+    question: str
+    answer: str
+
+
+@app.post("/biography/update")
+async def update_biography(request: UpdateBiographyRequest):
+    response = await client.responses.create(
+        model="gpt-6-luna",
+        instructions=(
+            "Du er en dansk biografiforfatter. "
+            "Du får en eksisterende biografi, et interviewspørgsmål "
+            "og brugerens svar. "
+            "Opdater biografien med de nye oplysninger. "
+            "Bevar alle korrekte oplysninger fra den eksisterende biografi. "
+            "Brug kun oplysninger, som brugeren har givet. "
+            "Opfind aldrig fakta, datoer, navne eller begivenheder. "
+            "Hvis svaret er uklart eller ikke giver mening, "
+            "skal du bevare biografien uændret. "
+            "Skriv naturligt på dansk i tredje person. "
+            "Returner kun den opdaterede biografi."
+        ),
+        input=(
+            f"Biografi:\n{request.biography}\n\n"
+            f"Spørgsmål:\n{request.question}\n\n"
+            f"Svar:\n{request.answer}"
+        ),
+        max_output_tokens=350,
+    )
+
+    return {"biography": response.output_text}

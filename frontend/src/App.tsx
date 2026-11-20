@@ -11,6 +11,9 @@ const [transcription, setTranscription] = useState("");
   const streamRef = useRef<MediaStream | null>(null);
 const [biography, setBiography] = useState("");
 const [isGenerating, setIsGenerating] = useState(false);
+const [question, setQuestion] = useState("");
+const [isAsking, setIsAsking] = useState(false);
+const [interviewAnswer, setInterviewAnswer] = useState("");
   async function startRecording() {
     try {
       setError("");
@@ -83,8 +86,13 @@ async function sendAudio() {
     }
 
     const data = await result.json();
-    setTranscription(data.text);
-
+    if (question) {
+  // Et interviewspørgsmål er aktivt
+  setInterviewAnswer(data.text);
+} else {
+  // Den første fortælling
+  setTranscription(data.text);
+}
   } catch (error) {
     console.error(error);
     setTranscription("Der opstod en fejl.");
@@ -123,6 +131,82 @@ async function generateBiography() {
 }
 
 
+async function askQuestion() {
+  if (!biography.trim() || isAsking) return;
+
+  try {
+    setIsAsking(true);
+    setQuestion("");
+
+    const response = await fetch("http://127.0.0.1:8000/interview", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        biography: biography,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Kunne ikke hente spørgsmål");
+    }
+
+    const data = await response.json();
+    setQuestion(data.question);
+
+  } catch (error) {
+    console.error(error);
+    alert("Der opstod en fejl med AI-intervieweren.");
+  } finally {
+    setIsAsking(false);
+  }
+}
+
+async function updateBiography() {
+  if (!biography || !question || !interviewAnswer || isGenerating) {
+    return;
+  }
+
+  try {
+    setIsGenerating(true);
+
+    const response = await fetch(
+      "http://127.0.0.1:8000/biography/update",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          biography: biography,
+          question: question,
+          answer: interviewAnswer,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Kunne ikke opdatere biografien");
+    }
+
+    const data = await response.json();
+
+    // Vis den opdaterede biografi
+    setBiography(data.biography);
+
+    // Nulstil interviewet til næste spørgsmål
+    setQuestion("");
+    setInterviewAnswer("");
+
+  } catch (error) {
+    console.error(error);
+    alert("Der opstod en fejl ved opdatering.");
+  } finally {
+    setIsGenerating(false);
+  }
+}
+
   return (
     <main style={{ textAlign: "center", padding: "60px 20px" }}>
       <h1>LivsFortæller</h1>
@@ -160,12 +244,48 @@ async function generateBiography() {
   </div>
 )}
 
+
 {biography && (
   <div>
     <h2>Din biografi</h2>
     <p>{biography}</p>
+
+    <button
+      onClick={askQuestion}
+      disabled={isAsking}
+    >
+      {isAsking ? "AI tænker..." : "Stil et opfølgende spørgsmål"}
+    </button>
   </div>
 )}
+
+
+{question && (
+  <div>
+    <h2>AI-interviewer</h2>
+    <p>{question}</p>
+
+    <p>🎤 Brug mikrofonen ovenfor til at svare.</p>
+
+ 
+{interviewAnswer && (
+  <div>
+    <h3>Dit svar</h3>
+    <p>{interviewAnswer}</p>
+
+    <button
+      onClick={updateBiography}
+      disabled={isGenerating}
+    >
+      {isGenerating ? "Opdaterer..." : "Opdater biografi med mit svar"}
+    </button>
+  </div>
+)}
+
+  </div>
+)}
+
+
 
         </div>
       )}
