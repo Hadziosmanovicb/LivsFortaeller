@@ -10,6 +10,7 @@ function App() {
   const [draft, setDraft] = useState("");
   const [biography, setBiography] = useState("");
   const [liveText, setLiveText] = useState("");
+  const [previousQuestions, setPreviousQuestions] = useState<string[]>([]);
   const [question, setQuestion] = useState(
     "Hvem vil du gerne fortælle om?"
   );
@@ -218,14 +219,25 @@ liveRecognitionRef.current = null;
         newBiography = data.biography;
       }
 
-      setBiography(newBiography);
-      setDraft("");
+      // Gem brugerens oprindelige, godkendte svar
 
-      const next = await apiPost("/interview", {
-        biography: newBiography,
-      });
 
-      setQuestion(next.question);
+setBiography(newBiography);
+setDraft("");
+     
+const next = await apiPost("/interview", {
+  biography: newBiography,
+  previous_questions: previousQuestions,
+});
+
+// Gem spørgsmålet, så AI ikke gentager det
+setPreviousQuestions((previous) => [
+  ...previous,
+  next.question,
+]);
+
+setQuestion(next.question);
+
     } catch {
       setError(
         "Noget gik galt. Kontrollér resultatet, før du prøver igen."

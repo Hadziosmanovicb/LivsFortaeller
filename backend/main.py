@@ -1,7 +1,7 @@
 
 import os
 import logging
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,33 +48,45 @@ async def transcribe(file: UploadFile = File(...)):
             detail="Kunne ikke transskribere optagelsen."
         )
 
+from pydantic import BaseModel, Field
 class BiographyRequest(BaseModel):
     text: str
+    story_facts: list[str] = Field(default_factory=list)
 
 
 @app.post("/biography")
 async def generate_biography(request: BiographyRequest):
+
+    # Saml tidligere fortællinger og det nye svar
+    all_stories = request.story_facts + [request.text]
+
+    # Lav én samlet tekst til AI'en
+    combined_text = "\n".join(all_stories)
+
     response = await client.responses.create(
         model="gpt-6-luna",
         instructions=(
             "Du er en dansk biografiforfatter. "
-            "Omskriv brugerens tekst til en kort, "
-            "naturlig og velskrevet biografi i tredje person. "
-            "Brug kun oplysninger fra brugerens tekst. "
-            "Du må aldrig opfinde navne, datoer, steder "
-            "eller andre personlige fakta. "
-            "Hvis noget er uklart, skal du udelade det. "
+            "Du modtager flere fortællinger om samme person. "
+            "Saml dem til én naturlig og sammenhængende biografi. "
+            "Skriv i tredje person på dansk. "
+            "Bevar relevante oplysninger fra fortællingerne. "
+            "Undgå gentagelser. "
+            "Opfind aldrig personlige fakta, datoer eller steder. "
+            "Hvis oplysninger modsiger hinanden, må du ikke gætte. "
             "Svar kun med biografien."
         ),
-        input=request.text,
-        max_output_tokens=250,
+        input=combined_text,
+        max_output_tokens=350,
     )
 
     return {"biography": response.output_text}
 
+
+
 class InterviewRequest(BaseModel):
     biography: str
-
+    previous_questions: list[str] = Field(default_factory=list)
 
 @app.post("/interview")
 async def generate_interview_question(request: InterviewRequest):
@@ -91,18 +103,25 @@ async def generate_interview_question(request: InterviewRequest):
             "Spørgsmålet skal være kort, naturligt og venligt. "
             "Svar kun med selve spørgsmålet."
         ),
-        input=request.biography,
+        input=(
+    f"Nuværende biografi:\n{request.biography}\n\n"
+    "Tidligere stillede spørgsmål:\n"
+    + "\n".join(request.previous_questions)
+    + "\n\nStil ét nyt relevant spørgsmål, "
+      "som ikke gentager de tidligere spørgsmål."
+),
         max_output_tokens=120,
     )
 
     return {"question": response.output_text}
 
+
+
 class UpdateBiographyRequest(BaseModel):
     biography: str
     question: str
     answer: str
-
-
+    
 @app.post("/biography/update")
 async def update_biography(request: UpdateBiographyRequest):
     response = await client.responses.create(
@@ -119,6 +138,12 @@ async def update_biography(request: UpdateBiographyRequest):
             "skal du bevare biografien uændret. "
             "Skriv naturligt på dansk i tredje person. "
             "Returner kun den opdaterede biografi."
+            "Brugerens svar kan også være feedback til biografien. "
+"Hvis brugeren beder om en anden skrivestil, skal du "
+"omskrive biografien uden at ændre dens fakta. "
+"Hvis brugeren retter en konkret oplysning, skal du "
+"bruge rettelsen frem for den gamle oplysning. "
+"Du må ikke opfinde nye personlige oplysninger. "
         ),
         input=(
             f"Biografi:\n{request.biography}\n\n"
