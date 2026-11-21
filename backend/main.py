@@ -102,6 +102,11 @@ async def generate_interview_question(request: InterviewRequest):
             "Du må ikke antage eller opfinde personlige fakta. "
             "Spørgsmålet skal være kort, naturligt og venligt. "
             "Svar kun med selve spørgsmålet."
+            "Stil altid spørgsmål om personen, biografien handler om. "
+"Hvis brugeren fortæller om en anden person, skal du "
+"spørge om denne person og ikke om brugerens eget liv. "
+"Hvis biografien handler om brugeren selv, må du bruge 'du'. "
+"Hvis du er usikker, så brug personens navn. "
         ),
         input=(
     f"Nuværende biografi:\n{request.biography}\n\n"
@@ -121,6 +126,7 @@ class UpdateBiographyRequest(BaseModel):
     biography: str
     question: str
     answer: str
+    story_facts: list[str] = Field(default_factory=list)
     
 @app.post("/biography/update")
 async def update_biography(request: UpdateBiographyRequest):
@@ -145,12 +151,61 @@ async def update_biography(request: UpdateBiographyRequest):
 "bruge rettelsen frem for den gamle oplysning. "
 "Du må ikke opfinde nye personlige oplysninger. "
         ),
-        input=(
-            f"Biografi:\n{request.biography}\n\n"
-            f"Spørgsmål:\n{request.question}\n\n"
-            f"Svar:\n{request.answer}"
-        ),
+       
+input=(
+    "Tidligere godkendte fortællinger:\n"
+    + "\n".join(request.story_facts)
+    + f"\n\nNuværende biografi:\n{request.biography}\n\n"
+    + f"Interviewspørgsmål:\n{request.question}\n\n"
+    + f"Seneste svar eller rettelse:\n{request.answer}\n\n"
+    + "Brug fortællingerne som baggrund. "
+      "Bevar brugerens manuelle ændringer i biografien. "
+      "Hvis det seneste svar tydeligt retter en ældre oplysning, "
+      "skal den seneste rettelse have forrang."
+),
+
         max_output_tokens=350,
     )
 
     return {"biography": response.output_text}
+
+class TimelineRequest(BaseModel):
+    biography: str
+
+
+class TimelineEvent(BaseModel):
+    date: str
+    event: str
+
+
+class TimelineResponse(BaseModel):
+    events: list[TimelineEvent]
+
+
+@app.post("/timeline")
+async def generate_timeline(request: TimelineRequest):
+    response = await client.responses.parse(
+        model="gpt-6-luna",
+        instructions=(
+            "Du laver livstidslinjer ud fra danske biografier. "
+            "Udtræk kun begivenheder, der fremgår af teksten. "
+            "Opfind aldrig årstal, datoer eller livsbegivenheder. "
+            "Hvis en begivenhed ikke har en kendt dato, "
+            "skriv 'Ukendt' i date. "
+            "Beskriv hver begivenhed kort på dansk. "
+            "Sorter kronologisk, når rækkefølgen er kendt. "
+            "Hvis ingen begivenheder kan udtrækkes, "
+            "returner en tom liste."
+        ),
+        input=request.biography,
+        text_format=TimelineResponse,
+        max_output_tokens=400,
+    )
+
+    if response.output_parsed is None:
+        raise HTTPException(
+            status_code=502,
+            detail="Kunne ikke generere tidslinje."
+        )
+
+    return response.output_parsed.model_dump()

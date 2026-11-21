@@ -8,9 +8,13 @@ function App() {
   const [recording, setRecording] = useState(false);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState("");
+  const [timeline, setTimeline] = useState<
+  { date: string; event: string }[]
+>([]);
   const [biography, setBiography] = useState("");
   const [liveText, setLiveText] = useState("");
   const [previousQuestions, setPreviousQuestions] = useState<string[]>([]);
+  const [storyFacts, setStoryFacts] = useState<string[]>([]);
   const [question, setQuestion] = useState(
     "Hvem vil du gerne fortælle om?"
   );
@@ -210,10 +214,11 @@ liveRecognitionRef.current = null;
         const data = await apiPost(
           "/biography/update",
           {
-            biography,
-            question,
-            answer: draft,
-          }
+  biography,
+  question,
+  answer: draft,
+  story_facts: storyFacts,
+}
         );
 
         newBiography = data.biography;
@@ -222,6 +227,7 @@ liveRecognitionRef.current = null;
       // Gem brugerens oprindelige, godkendte svar
 
 
+setStoryFacts((previous) => [...previous, draft]);
 setBiography(newBiography);
 setDraft("");
      
@@ -247,6 +253,28 @@ setQuestion(next.question);
     }
   }
 
+async function finishStory() {
+  if (!biography.trim() || loading) return;
+
+  setLoading(true);
+  setError("");
+
+  try {
+    const data = await apiPost("/timeline", {
+      biography: biography,
+    });
+
+    setTimeline(data.events);
+    setFinished(true);
+
+  } catch (error) {
+    console.error(error);
+    setError("Kunne ikke generere tidslinjen.");
+  } finally {
+    setLoading(false);
+  }
+}
+
   return (
     <div className="app">
       <header className="header">
@@ -271,7 +299,7 @@ setQuestion(next.question);
           </p>
         </section>
 
-        {biography && (
+        {biography && !finished && (
           <section className="biography-card">
             <div className="card-heading">
               <span>✦</span> Din biografi
@@ -377,7 +405,7 @@ setQuestion(next.question);
               <button
                 className="finish-button"
                 disabled={recording || loading}
-                onClick={() => setFinished(true)}
+                onClick={finishStory}
               >
                 Jeg er tilfreds med min biografi ✓
               </button>
@@ -386,7 +414,68 @@ setQuestion(next.question);
         ) : (
           <section className="conversation">
             <div className="finish-icon">✓</div>
-            <h2>Din fortælling er klar</h2>
+            
+<div className="biography-card" style={{ textAlign: "left" }}>
+  <div className="card-heading">
+    ✦ Din livshistorie
+  </div>
+
+  <textarea
+    className="biography-text"
+    value={biography}
+    onChange={(event) => setBiography(event.target.value)}
+    aria-label="Redigér din livshistorie"
+    rows={6}
+  />
+</div>
+
+<h3>Livets tidslinje</h3>
+
+<ol style={{ textAlign: "left", lineHeight: 1.8 }}>
+  {timeline.map((item, index) => (
+    <li key={index}>
+      
+<input
+  type="text"
+  value={item.date}
+  aria-label={`Dato for begivenhed ${index + 1}`}
+  onChange={(event) => {
+    setTimeline((previous) =>
+      previous.map((entry, i) =>
+        i === index
+          ? { ...entry, date: event.target.value }
+          : entry
+      )
+    );
+  }}
+  style={{
+    width: "120px",
+    padding: "8px",
+    marginBottom: "8px",
+    fontWeight: 600,
+  }}
+/>
+
+      
+<textarea
+  value={item.event}
+  aria-label={`Redigér begivenhed ${index + 1}`}
+  rows={2}
+  onChange={(e) => {
+    setTimeline((previous) =>
+      previous.map((entry, i) =>
+        i === index
+          ? { ...entry, event: e.target.value }
+          : entry
+      )
+    );
+  }}
+/>
+
+    </li>
+  ))}
+</ol>
+
             <p>
               Du kan stadig redigere din biografi ovenfor.
             </p>
